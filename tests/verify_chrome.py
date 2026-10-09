@@ -220,19 +220,19 @@ def main(work_dir):
         selections = []
         def select_hls(title, options):
             selections.append((title, options))
-            if title.startswith('재생목록'):
-                return next(option['url'] for option in options if '/generic/' in option['url'])
-            return next(option['url'] for option in options if '/high/' in option['url'])
+            assert title.startswith('재생목록'), 'Quality must be selected automatically'
+            return next(option['url'] for option in options if '/generic/' in option['url'])
         prepare('/hls-page')
         user_replays('/hls-page', '/generic/master.m3u8')
         paths_before = len(state['paths'])
         assert download('/hls-page', mode='hls', choose=select_hls).exists()
+        assert len(selections) == 1, 'Unexpected quality selection prompt'
         assert any('/ads/' in option['url'] for option in selections[0][1])
         assert '/generic/high/index.m3u8' in state['paths'][paths_before:]
         assert '/generic/low/index.m3u8' not in state['paths'][paths_before:]
         assert '/ads/ad.m3u8' not in state['paths'][paths_before:]
-        print('PASS general HLS discovery / explicit ad-vs-content choice / selected quality only.', flush=True)
-        assert download('/generic/master.m3u8', mode='hls', choose=select_hls).exists()
+        print('PASS general HLS discovery / explicit ad-vs-content choice / highest quality automatically.', flush=True)
+        assert download('/generic/master.m3u8', mode='hls').exists()
         assert download('/generic/low/index.m3u8', mode='hls').exists()
         print('PASS arbitrary master.m3u8 and index.m3u8 direct inputs.', flush=True)
         pages_before = state['pages']
@@ -244,7 +244,7 @@ def main(work_dir):
                                     lambda: user_replays('/hls-mime', '/generic/manifest'), select_hls)
         assert found == server_url + '/generic/manifest'
         assert download('/generic/manifest', mode='hls', direct_hls=True).exists()
-        print('PASS find-only quality selection / new HLS MIME response / extensionless selected playlist.', flush=True)
+        print('PASS find-only highest quality automatically / new HLS MIME response / extensionless selected playlist.', flush=True)
 
         prepare('/embedded')
         with sync_playwright() as p:
@@ -288,11 +288,7 @@ def main(work_dir):
                 while gui.worker.is_alive() or not gui.events.empty():
                     assert time.monotonic() < deadline, 'GUI queue or selection deadlocked'
                     root.update()
-                    if gui.selector_frame.grid_info() and gui.selection_options:
-                        choice = next(i for i, option in enumerate(gui.selection_options) if '/high/' in option['url'])
-                        gui.option_view.selection_set(str(choice))
-                        root.update()
-                        gui.confirm_selection()
+                    assert not gui.selector_frame.grid_info(), 'Direct master must not prompt for quality'
                     time.sleep(0.05)
                 assert [gui.queue_view.set(str(i), 'state') for i in range(3)] == ['완료', '실패', '완료']
                 assert '성공 2, 실패 1' in gui.status.get()
@@ -317,8 +313,8 @@ def main(work_dir):
                     assert time.monotonic() < deadline, 'GUI finder deadlocked'
                     root.update()
                     if gui.selector_frame.grid_info() and gui.selection_options:
-                        wanted = '/master.m3u8' if gui.selector_frame['text'].startswith('재생목록') else '/high/'
-                        choice = next(i for i, option in enumerate(gui.selection_options) if wanted in option['url'])
+                        assert gui.selector_frame['text'].startswith('재생목록'), 'Unexpected quality prompt'
+                        choice = next(i for i, option in enumerate(gui.selection_options) if '/master.m3u8' in option['url'])
                         gui.option_view.selection_set(str(choice))
                         root.update()
                         gui.confirm_selection()
@@ -332,7 +328,7 @@ def main(work_dir):
                 cancelled = []
                 def wait_for_choice():
                     try:
-                        gui.choose_option('화질 선택', [{'url': found_url, 'label': 'test'}])
+                        gui.choose_option('재생목록 선택', [{'url': found_url, 'label': 'test'}])
                     except h.Cancelled:
                         cancelled.append(True)
                 gui.set_running(True)
@@ -350,7 +346,7 @@ def main(work_dir):
                 gui.mode.set('site')
                 gui.update_mode()
                 assert str(gui.find_button['state']) == 'disabled'
-                print('PASS Tk mode buttons / finder without segments / page headers saved / quality selection / queue / stop waiting.', flush=True)
+                print('PASS Tk mode buttons / finder without segments / page headers saved / auto quality / queue / stop waiting.', flush=True)
         finally:
             root.destroy()
         prepare('/video', click=True)

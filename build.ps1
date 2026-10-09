@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Path $BuildDirectory -Force | Out-Null
 & $Python -m PyInstaller --noconfirm --onefile --windowed `
-    --name HLS_Downloader_v10 --collect-all patchright `
+    --name HLS_Downloader_v11 --collect-all patchright `
     --distpath $PSScriptRoot --workpath (Join-Path $BuildDirectory "cache") `
     --specpath $BuildDirectory (Join-Path $PSScriptRoot "hls_downloader.py")
 if ($LASTEXITCODE -ne 0) {

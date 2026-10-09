@@ -440,7 +440,13 @@ def parse_variants(text, base_url):
                 resolution = attributes.get("RESOLUTION", "해상도 정보 없음")
                 bandwidth = attributes.get("AVERAGE-BANDWIDTH", attributes.get("BANDWIDTH", ""))
                 label = resolution + (f" / {int(bandwidth) / 1000:g} kbps" if bandwidth.isdigit() else "")
-                variants.append({"url": urljoin(base_url, lines[i + 1]), "label": label})
+                dimensions = re.fullmatch(r"([0-9]+)x([0-9]+)", resolution)
+                resolution_area = int(dimensions[1]) * int(dimensions[2]) if dimensions else 0
+                peak = attributes.get("BANDWIDTH", "")
+                rank_bandwidth = int(peak) if peak.isdigit() and int(peak) > 0 else (
+                    int(bandwidth) if bandwidth.isdigit() else 0)
+                variants.append({"url": urljoin(base_url, lines[i + 1]), "label": label,
+                                 "resolution_area": resolution_area, "bandwidth": rank_bandwidth})
     if not variants:
         raise RuntimeError("하위 재생목록을 찾지 못했습니다.")
     return variants
@@ -493,7 +499,7 @@ def request_playlist(page, url, headers, cancel):
         response.dispose()
 
 
-def load_media_playlist(page, playlist_url, headers, cancel, mode, choose):
+def load_media_playlist(page, playlist_url, headers, cancel, mode, choose, log=None):
     playlist_url, text = request_playlist(page, playlist_url, headers, cancel)
     for line in text.splitlines():
         line = line.strip()
@@ -507,7 +513,14 @@ def load_media_playlist(page, playlist_url, headers, cancel, mode, choose):
     if "#EXT-X-STREAM-INF:" not in text:
         return playlist_url, text
     if mode == "hls":
-        media_url = choose_hls_option(parse_variants(text, playlist_url), "화질 선택", cancel, choose)
+        variants = parse_variants(text, playlist_url)
+        best = max(variants, key=lambda variant: (variant["resolution_area"], variant["bandwidth"]))
+        media_url = best["url"]
+        if log:
+            if best["resolution_area"] or best["bandwidth"]:
+                log(f"[*] 최고 화질 자동 선택: {best['label']}")
+            else:
+                log("[*] 화질 정보가 없어 첫 번째 하위 재생목록을 사용합니다.")
     else:
         media_url = parse_master(text, playlist_url)
     return request_playlist(page, media_url, headers, cancel)
@@ -526,7 +539,7 @@ def find_hls_playlist(video_page, headers, cancel, log, wait_for_user, choose, d
         else:
             page = find_video_page(browser, video_page)
             playlist_url = discover_hls(page, cancel, log, wait_for_user, choose)
-        media_url, media_text = load_media_playlist(page, playlist_url, headers, cancel, "hls", choose)
+        media_url, media_text = load_media_playlist(page, playlist_url, headers, cancel, "hls", choose, log)
         parse_media(media_text)
         return media_url
 
@@ -679,7 +692,7 @@ def run_download(video_page, output_dir, headers, cancel, log, progress, wait_fo
                 raise RuntimeError(f"{label} 요청 실패 (HTTP {status}).")
             return response
 
-        media_url, media_text = load_media_playlist(page, playlist_url, headers, cancel, mode, choose)
+        media_url, media_text = load_media_playlist(page, playlist_url, headers, cancel, mode, choose, log)
         segments = parse_media(media_text)
         log(f"[*] 조각 수: {len(segments)}")
         files = []
@@ -839,7 +852,7 @@ class DownloaderApp:
         self.progress = ttk.Progressbar(frame, mode="determinate")
         self.progress.grid(row=5, column=0, columnspan=3, sticky="ew", pady=8)
         ttk.Label(frame, textvariable=self.status, wraplength=790).grid(row=6, column=0, columnspan=3, sticky="w")
-        self.selector_frame = ttk.LabelFrame(frame, text="재생목록 / 화질 선택", padding=6)
+        self.selector_frame = ttk.LabelFrame(frame, text="재생목록 선택", padding=6)
         self.selector_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(6, 0))
         self.selector_frame.columnconfigure(0, weight=1)
         self.option_view = ttk.Treeview(self.selector_frame, columns=("label", "url"), show="headings", height=3)

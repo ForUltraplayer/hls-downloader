@@ -97,20 +97,65 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(variants[1]["label"], "1280x720 / 1500 kbps")
         self.assertEqual(h.parse_master(master, "https://cdn.example/id/master.m3u8"), variants[0]["url"])
 
-    def test_general_quality_selection_requests_selected_variant_and_disposes(self):
+    def test_general_quality_auto_selects_without_chooser_and_disposes(self):
         master = Mock(status=200, url="https://cdn.example/master.m3u8")
         master.text.return_value = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100000\nlow.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=200000\nhigh.m3u8?key=test\n'
         media = Mock(status=200, url="https://cdn.example/high.m3u8?key=test")
         media.text.return_value = '#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n'
         page = Mock()
         page.request.get.side_effect = [master, media]
+        choose, log = Mock(), Mock()
         url, text = h.load_media_playlist(page, master.url, h.HEADERS_TEMPLATE, threading.Event(), "hls",
-                                         lambda title, options: options[1]["url"])
+                                         choose, log)
         self.assertEqual(url, media.url)
         self.assertEqual(page.request.get.call_args.args[0], media.url)
         self.assertEqual(page.request.get.call_args.kwargs["headers"], h.HEADERS_TEMPLATE)
+        choose.assert_not_called()
+        log.assert_called_once_with("[*] 최고 화질 자동 선택: 해상도 정보 없음 / 200 kbps")
         master.dispose.assert_called_once()
         media.dispose.assert_called_once()
+
+    def test_auto_quality_prioritizes_resolution_then_bandwidth(self):
+        cases = (
+            ("RESOLUTION=1280x720,BANDWIDTH=8000000", "RESOLUTION=1920x1080,BANDWIDTH=2000000"),
+            ("RESOLUTION=1920x1080,BANDWIDTH=2000000", "RESOLUTION=1920x1080,BANDWIDTH=3000000"),
+            ("RESOLUTION=invalid,BANDWIDTH=invalid,AVERAGE-BANDWIDTH=1000000",
+             "AVERAGE-BANDWIDTH=2000000"),
+        )
+        for low, high in cases:
+            with self.subTest(low=low, high=high):
+                master = '#EXTM3U\n#EXT-X-STREAM-INF:' + low + '\nlow.m3u8\n#EXT-X-STREAM-INF:' + high + '\nhigh.m3u8\n'
+                # 목록 순서가 바뀌어도 최고 화질을 선택해야 한다.
+                reversed_master = '#EXTM3U\n#EXT-X-STREAM-INF:' + high + '\nhigh.m3u8\n#EXT-X-STREAM-INF:' + low + '\nlow.m3u8\n'
+                for manifest in (master, reversed_master):
+                    page = Mock()
+                    with patch.object(h, "request_playlist", side_effect=[
+                            ("https://cdn.example/master.m3u8", manifest),
+                            ("https://cdn.example/high.m3u8", "#EXTM3U\n")]) as request:
+                        h.load_media_playlist(page, "https://cdn.example/master.m3u8", {},
+                                              threading.Event(), "hls", None)
+                    self.assertEqual(request.call_args.args[1], "https://cdn.example/high.m3u8")
+
+    def test_auto_quality_missing_metadata_uses_first_and_explains_fallback(self):
+        manifest = '#EXTM3U\n#EXT-X-STREAM-INF:CODECS="avc1"\nfirst.m3u8\n#EXT-X-STREAM-INF:CODECS="avc1"\nsecond.m3u8\n'
+        log = Mock()
+        with patch.object(h, "request_playlist", side_effect=[
+                ("https://cdn.example/master.m3u8", manifest),
+                ("https://cdn.example/first.m3u8", "#EXTM3U\n")]) as request:
+            h.load_media_playlist(Mock(), "https://cdn.example/master.m3u8", {},
+                                  threading.Event(), "hls", None, log)
+        self.assertEqual(request.call_args.args[1], "https://cdn.example/first.m3u8")
+        log.assert_called_once_with("[*] 화질 정보가 없어 첫 번째 하위 재생목록을 사용합니다.")
+
+    def test_direct_media_playlist_keeps_supplied_quality(self):
+        url, manifest = "https://cdn.example/low.m3u8", '#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n'
+        choose, log = Mock(), Mock()
+        with patch.object(h, "request_playlist", return_value=(url, manifest)) as request:
+            self.assertEqual(h.load_media_playlist(Mock(), url, {}, threading.Event(), "hls", choose, log),
+                             (url, manifest))
+        request.assert_called_once()
+        choose.assert_not_called()
+        log.assert_not_called()
 
     def test_hls_choice_cannot_return_foreign_url_or_ignore_cancel(self):
         options = [{"url": "https://cdn.example/low.m3u8", "label": "low"},
