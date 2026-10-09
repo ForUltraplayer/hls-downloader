@@ -18,6 +18,17 @@ Origin·Referer 기본값은 비어 있습니다. 유효한 값을 입력하거�
 Origin은 `https://player.example`, 루트 Referer는 `https://player.example/` 형식입니다.
 Referer의 상세 경로는 입력한 대로 유지합니다. 문서와 테스트의 `.example` 주소는 가상 예제입니다.
 
+```text
+영상 페이지: https://video.example/watch/sample
+재생목록: https://cdn.example/sample/master.m3u8
+Origin: https://player.example
+Referer: https://player.example/
+저장 폴더: D:\Videos
+결과 파일: D:\Videos\sample.mp4
+```
+
+위 주소들은 사용 방법을 설명하는 가상 값입니다. 실제 입력할 때는 영상 페이지와 플레이어의 요청 기록에 맞춥니다.
+
 ## 다운로드 방식
 
 - 기존 사이트 방식: 본문·iframe의 `videoPlayerConfig` 설정 또는 `playlist.html` / `video.html` 요청 기록을 사용합니다.
