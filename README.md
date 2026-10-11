@@ -4,7 +4,7 @@
 
 ## 실행
 
-Windows, 설치된 Google Chrome, FFmpeg가 필요합니다. `HLS_Downloader_v11.exe`로 실행하면 Python 설치는 필요하지 않습니다.
+Windows, 설치된 Google Chrome, FFmpeg가 필요합니다. `HLS_Downloader.exe`로 실행하면 Python 설치는 필요하지 않습니다.
 
 1. **Chrome 열기**를 누르거나 이미 CDP 9222로 실행한 Chrome을 사용합니다.
 2. Chrome에서 직접 영상 페이지를 열고 필요한 확인 절차와 광고를 처리한 뒤 실제 영상을 재생합니다.
